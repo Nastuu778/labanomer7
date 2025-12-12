@@ -1,0 +1,118 @@
+name: 'C++ CI'
+
+on:
+  push:
+    branches:
+      - lab7
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      release_version: ${{ steps.get_version.outputs.commit_count }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Get commit count
+        id: get_version
+        run: |
+          COMMIT_COUNT=$(git rev-list --count HEAD)
+          echo "commit_count=$COMMIT_COUNT" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v1.1.${{ steps.get_version.outputs.commit_count }}
+          release_name: Release v1.1.${{ steps.get_version.outputs.commit_count }}
+          draft: false
+          prerelease: false
+
+  build-linux:
+    runs-on: ubuntu-latest
+    needs: create-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Install Boost dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libboost-filesystem-dev libboost-program-options-dev libboost-system-dev
+
+      - name: Configure CMake
+        run: cmake -B build -DCOMMIT_COUNT=${{ needs.create-release.outputs.release_version }}
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Package (creates .deb if CPack is configured)
+        run: |
+          cd build
+          cmake --build . --target package
+
+      - name: Upload Linux Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./build/duplicate_finder-1.1.${{ needs.create-release.outputs.release_version }}-Linux.deb
+          asset_name: duplicate_finder-1.1.${{ needs.create-release.outputs.release_version }}-Linux.deb
+          asset_content_type: application/vnd.debian.binary-package
+
+  build-windows:
+    runs-on: windows-latest
+    needs: create-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          choco install cmake -y --installargs 'ADD_CMAKE_TO_PATH=System'
+          git clone https://github.com/Microsoft/vcpkg.git
+          cd vcpkg
+          .\bootstrap-vcpkg.bat
+          .\vcpkg install boost-filesystem boost-program-options boost-system:x64-windows
+
+      - name: Configure CMake
+        run: |
+          cmake -B build ^
+            -DCMAKE_TOOLCHAIN_FILE="vcpkg/scripts/buildsystems/vcpkg.cmake" ^
+            -A x64 ^
+            -DCOMMIT_COUNT=${{ needs.create-release.outputs.release_version }}
+
+      - name: Build project
+        run: cmake --build build --config Release
+
+      - name: Create Windows distribution package
+        shell: pwsh
+        run: |
+          $version = "${{ needs.create-release.outputs.release_version }}"
+          Compress-Archive -Path "build\Release\duplicate_finder.exe" -DestinationPath "duplicate_finder-windows-v1.1.$version.zip"
+
+      - name: Upload Windows Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./duplicate_finder-windows-v1.1.${{ needs.create-release.outputs.release_version }}.zip
+          asset_name: duplicate_finder-windows-v1.1.${{ needs.create-release.outputs.release_version }}.zip
+          asset_content_type: application/zip
