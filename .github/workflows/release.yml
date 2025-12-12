@@ -49,18 +49,17 @@ jobs:
       - name: Install Boost dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libboost-filesystem-dev libboost-program-options-dev libboost-system-dev
+          sudo apt-get install -y libboost-filesystem-dev libboost-program-options-dev libboost-system-dev cmake g++
 
-      - name: Configure CMake
-        run: cmake -B build -DCOMMIT_COUNT=${{ needs.create-release.outputs.release_version }}
+      - name: Configure and Build
+        run: |
+          cmake -B build -DCOMMIT_COUNT=${{ needs.create-release.outputs.release_version }} -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release
 
-      - name: Build
-        run: cmake --build build
-
-      - name: Package (creates .deb if CPack is configured)
+      - name: Create Linux Archive
         run: |
           cd build
-          cmake --build . --target package
+          tar -czf duplicate_finder-linux.tar.gz duplicate_finder
 
       - name: Upload Linux Release Asset
         uses: actions/upload-release-asset@v1
@@ -68,9 +67,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./build/duplicate_finder-1.1.${{ needs.create-release.outputs.release_version }}-Linux.deb
-          asset_name: duplicate_finder-1.1.${{ needs.create-release.outputs.release_version }}-Linux.deb
-          asset_content_type: application/vnd.debian.binary-package
+          asset_path: ./build/duplicate_finder-linux.tar.gz
+          asset_name: duplicate_finder-linux-v1.1.${{ needs.create-release.outputs.release_version }}.tar.gz
+          asset_content_type: application/gzip
 
   build-windows:
     runs-on: windows-latest
@@ -83,25 +82,23 @@ jobs:
           submodules: true
           fetch-depth: 0
 
-      - name: Install dependencies
+      - name: Install dependencies via vcpkg
+        shell: pwsh
         run: |
-          choco install cmake -y --installargs 'ADD_CMAKE_TO_PATH=System'
           git clone https://github.com/Microsoft/vcpkg.git
-          cd vcpkg
-          .\bootstrap-vcpkg.bat
-          .\vcpkg install boost-filesystem boost-program-options boost-system:x64-windows
+          ./vcpkg/bootstrap-vcpkg.bat
+          ./vcpkg/vcpkg install boost-filesystem boost-program-options boost-system:x64-windows
 
-      - name: Configure CMake
+      - name: Configure and Build
         run: |
           cmake -B build ^
             -DCMAKE_TOOLCHAIN_FILE="vcpkg/scripts/buildsystems/vcpkg.cmake" ^
             -A x64 ^
-            -DCOMMIT_COUNT=${{ needs.create-release.outputs.release_version }}
+            -DCOMMIT_COUNT=${{ needs.create-release.outputs.release_version }} ^
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release
 
-      - name: Build project
-        run: cmake --build build --config Release
-
-      - name: Create Windows distribution package
+      - name: Create Windows ZIP
         shell: pwsh
         run: |
           $version = "${{ needs.create-release.outputs.release_version }}"
