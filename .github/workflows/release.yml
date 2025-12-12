@@ -82,21 +82,24 @@ jobs:
           submodules: true
           fetch-depth: 0
 
-      - name: Install dependencies via vcpkg
+      - name: Install vcpkg and Boost
         shell: pwsh
         run: |
           git clone https://github.com/Microsoft/vcpkg.git
           ./vcpkg/bootstrap-vcpkg.bat
           ./vcpkg/vcpkg install boost-filesystem boost-program-options boost-system:x64-windows
 
-      - name: Configure and Build
+      - name: Configure with vcpkg toolchain
+        shell: pwsh
         run: |
-          cmake -B build ^
-            -DCMAKE_TOOLCHAIN_FILE="vcpkg/scripts/buildsystems/vcpkg.cmake" ^
-            -A x64 ^
-            -DCOMMIT_COUNT=${{ needs.create-release.outputs.release_version }} ^
+          cmake -B build `
+            -DCMAKE_TOOLCHAIN_FILE="vcpkg/scripts/buildsystems/vcpkg.cmake" `
+            -A x64 `
+            -DCOMMIT_COUNT=${{ needs.create-release.outputs.release_version }} `
             -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --config Release
+
+      - name: Build project
+        run: cmake --build build --config Release
 
       - name: Create Windows ZIP
         shell: pwsh
